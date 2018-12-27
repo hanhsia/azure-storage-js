@@ -1,6 +1,9 @@
 # Azure Storage SDK V10 for JavaScript
 
 * @azure/storage-blob [![npm version](https://badge.fury.io/js/%40azure%2Fstorage-blob.svg)](https://badge.fury.io/js/%40azure%2Fstorage-blob)
+* @azure/storage-file [![npm version](https://badge.fury.io/js/%40azure%2Fstorage-file.svg)](https://badge.fury.io/js/%40azure%2Fstorage-file)
+* @azure/storage-queue [![npm version](https://badge.fury.io/js/%40azure%2Fstorage-queue.svg)](https://badge.fury.io/js/%40azure%2Fstorage-queue)
+* [API Reference documentation](https://docs.microsoft.com/en-us/javascript/api/overview/azure/storage/client?view=azure-node-preview)
 
 ## Introduction
 
@@ -16,6 +19,15 @@ Please note that this version of the SDK is a compete overhaul of the current [A
   * Create/Read/List/Update/Delete Block Blobs
   * Create/Read/List/Update/Delete Page Blobs
   * Create/Read/List/Update/Delete Append Blobs
+* File Storage
+  * Get/Set File Service Properties
+  * Create/List/Delete File Shares
+  * Create/List/Delete File Directories
+  * Create/Read/List/Update/Delete Files
+* Queue Storage
+  * Get/Set Queue Service Properties
+  * Create/List/Delete Queues
+  * Enqueue/Dequeue/Peek/Clear/Update/Delete Queue Messages
 * Features new
   * Asynchronous I/O for all operations using the async methods
   * HttpPipeline which enables a high degree of per-request configurability
@@ -39,7 +51,7 @@ This library depends on following ES6 features which need external polyfills loa
 
 #### Differences between Node.js and browsers
 
-There are differences between Node.js and browsers runtime. When getting start with this SDK, pay attention to APIs or classes marked with *"ONLY AVAILABLE IN NODE.JS RUNTIME"* or *"ONLY AVAILABLE IN BROWSERS"*.
+There are differences between Node.js and browsers runtime. When getting start with this SDK, pay attention to APIs or classes marked with _"ONLY AVAILABLE IN NODE.JS RUNTIME"_ or _"ONLY AVAILABLE IN BROWSERS"_.
 
 ##### Following features, interfaces, classes or functions are only available in Node.js
 
@@ -48,21 +60,29 @@ There are differences between Node.js and browsers runtime. When getting start w
 * Shared Access Signature(SAS) generation
   * `generateAccountSASQueryParameters()`
   * `generateBlobSASQueryParameters()`
+  * `generateFileSASQueryParameters()`
+  * `generateQueueSASQueryParameters()`
 * Parallel uploading and downloading
   * `uploadFileToBlockBlob()`
   * `uploadStreamToBlockBlob()`
   * `downloadBlobToBuffer()`
+  * `uploadFileToAzureFile()`
+  * `uploadStreamToAzureFile()`
+  * `downloadAzureFileToBuffer()`
 
 ##### Following features, interfaces, classes or functions are only available in browsers
 
 * Parallel uploading and downloading
   * `uploadBrowserDataToBlockBlob()`
+  * `uploadBrowserDataToAzureFile()`
 
 ## Getting Started
 
 ### NPM
 
-The preferred way to install the Azure Storage SDK for JavaScript is to use the npm package manager. Simply type the following into a terminal window:
+The preferred way to install the Azure Storage SDK for JavaScript is to use the npm package manager. Take "@azure/storage-blob" for example.
+
+Simply type the following into a terminal window: 
 
 ```bash
 npm install @azure/storage-blob
@@ -86,17 +106,23 @@ To use the SDK with JS bundle in the browsers, simply add a script tag to your H
 
 ```html
 <script src="https://mydomain/azure-storage.blob.min.js"></script>
+<script src="https://mydomain/azure-storage.file.min.js"></script>
+<script src="https://mydomain/azure-storage.queue.min.js"></script>
 ```
 
 The JS bundled file is compatible with [UMD](https://github.com/umdjs/umd) standard, if no module system found, following global variable(s) will be exported:
 
 * `azblob`
+* `azfile`
+* `azqueue`
 
 #### Download
 
 Download latest released JS bundles from links in the [GitHub release page](https://github.com/Azure/azure-storage-js/releases). Or from following links directly:
 
 * Blob [https://aka.ms/downloadazurestoragejsblob](https://aka.ms/downloadazurestoragejsblob)
+* File [https://aka.ms/downloadazurestoragejsfile](https://aka.ms/downloadazurestoragejsfile)
+* Queue [https://aka.ms/downloadazurestoragejsqueue](https://aka.ms/downloadazurestoragejsqueue)
 
 ### CORS
 
@@ -104,10 +130,10 @@ You need to set up [Cross-Origin Resource Sharing (CORS)](https://docs.microsoft
 
 For example, you can create following CORS settings for debugging. But please customize the settings carefully according to your requirements in production environment.
 
-* Allowed origins: *
+* Allowed origins: \*
 * Allowed verbs: DELETE,GET,HEAD,MERGE,POST,OPTIONS,PUT
-* Allowed headers: *
-* Exposed headers: *
+* Allowed headers: \*
+* Exposed headers: \*
 * Maximum age (seconds): 86400
 
 ## SDK Architecture
@@ -143,12 +169,12 @@ async function main() {
 
   // Use TokenCredential with OAuth token
   const tokenCredential = new TokenCredential("token");
-  tokenCredential.token = "renewedToken";
+  tokenCredential.token = "renewedToken"; // Renew the token by updating token field of token credential
 
   // Use AnonymousCredential when url already includes a SAS signature
   const anonymousCredential = new AnonymousCredential();
 
-  // Use sharedKeyCredential, tokenCredential or tokenCredential to create a pipeline
+  // Use sharedKeyCredential, tokenCredential or anonymousCredential to create a pipeline
   const pipeline = StorageURL.newPipeline(sharedKeyCredential);
 
   // List containers
@@ -165,7 +191,7 @@ async function main() {
       marker
     );
 
-    marker = listContainersResponse.marker;
+    marker = listContainersResponse.nextMarker;
     for (const container of listContainersResponse.containerItems) {
       console.log(`Container: ${container.name}`);
     }
@@ -197,13 +223,14 @@ async function main() {
   );
 
   // List blobs
+  marker = undefined;
   do {
     const listBlobsResponse = await containerURL.listBlobFlatSegment(
       Aborter.none,
       marker
     );
 
-    marker = listBlobsResponse.marker;
+    marker = listBlobsResponse.nextMarker;
     for (const blob of listBlobsResponse.segment.blobItems) {
       console.log(`Blob: ${blob.name}`);
     }
@@ -215,13 +242,27 @@ async function main() {
   const downloadBlockBlobResponse = await blobURL.download(Aborter.none, 0);
   console.log(
     "Downloaded blob content",
-    downloadBlockBlobResponse.readableStreamBody.read(content.length).toString()
+    await streamToString(downloadBlockBlobResponse.readableStreamBody)
   );
 
   // Delete container
   await containerURL.delete(Aborter.none);
 
   console.log("deleted container");
+}
+
+// A helper method used to read a Node.js readable stream into string
+async function streamToString(readableStream) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    readableStream.on("data", data => {
+      chunks.push(data.toString());
+    });
+    readableStream.on("end", () => {
+      resolve(chunks.join(""));
+    });
+    readableStream.on("error", reject);
+  });
 }
 
 // An async method returns a Promise object, which is compatible with then().catch() coding style.
@@ -238,6 +279,10 @@ main()
 
 * [Blob Storage Examples](https://github.com/azure/azure-storage-js/tree/master/blob/samples)
 * [Blob Storage Examples - Test Cases](https://github.com/azure/azure-storage-js/tree/master/blob/test/)
+* [File Storage Examples](https://github.com/azure/azure-storage-js/tree/master/file/samples)
+* [File Storage Examples - Test Cases](https://github.com/azure/azure-storage-js/tree/master/file/test/)
+* [Queue Storage Examples](https://github.com/azure/azure-storage-js/tree/master/queue/samples)
+* [Queue Storage Examples - Test Cases](https://github.com/azure/azure-storage-js/tree/master/queue/test/)
 
 ## License
 
